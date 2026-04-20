@@ -23,6 +23,24 @@ LOCKED_DEFAULTS = {
     "relative_humidity": "N/A",
 }
 
+TECHNICIAN_STANDARDS = {
+    "Brandon": {
+        "standard_1": "FLUKE/C19623",
+        "standard_2": "REED/241209830/11-08-26",
+        "standard_3": "TRACEABLE/250534900/09-02-27",
+    },
+    "Hugo": {
+        "standard_1": "FLUKE/A8B413",
+        "standard_2": "REED/210205965/11-08-26",
+        "standard_3": "TRACEABLE/250534899/09-02-27",
+    },
+    "North": {
+        "standard_1": "FLUKE/9103/C19635",
+        "standard_2": "REED/C-370/241209386",
+        "standard_3": "TRACEABLE/250534896/09-02-27",
+    },
+}
+
 INSTRUMENT_CATALOG = [
     {"manufacturer": "LOGTAG", "model_number": "TRED30-16R", "size_range": "(-40°F TO 140°F)"},
     {"manufacturer": "LOGTAG", "model_number": "TRED30-7R", "size_range": "(-40°F TO 140°F)"},
@@ -188,14 +206,15 @@ with tab1:
         with lock2:
             st.text_input("These values will be auto-filled on every certificate", value="LOCKED", disabled=True)
 
-        st.markdown("**Standards Used**")
+        standards = TECHNICIAN_STANDARDS[assigned_technician]
+        st.markdown("**Locked standards for assigned technician**")
         s1, s2, s3 = st.columns(3)
         with s1:
-            standard_1 = to_caps(st.text_input("Standard 1"))
+            standard_1 = to_caps(st.text_input("Standard 1", value=standards["standard_1"], disabled=True))
         with s2:
-            standard_2 = to_caps(st.text_input("Standard 2"))
+            standard_2 = to_caps(st.text_input("Standard 2", value=standards["standard_2"], disabled=True))
         with s3:
-            standard_3 = to_caps(st.text_input("Standard 3"))
+            standard_3 = to_caps(st.text_input("Standard 3", value=standards["standard_3"], disabled=True))
 
         instrument_count = st.number_input("How many thermometers?", min_value=1, max_value=20, value=3, step=1)
 
@@ -279,9 +298,9 @@ with tab1:
             "tolerance_as_found": tolerance_as_found,
             "adjustments_made": adjustments_made,
             "condition_as_found": condition_as_found,
-            "standard_1": standard_1,
-            "standard_2": standard_2,
-            "standard_3": standard_3,
+            "standard_1": to_caps(standards["standard_1"]),
+            "standard_2": to_caps(standards["standard_2"]),
+            "standard_3": to_caps(standards["standard_3"]),
             "status": "assigned",
             "final_certificates_generated": False,
             "generated_zip_path": "",
@@ -332,9 +351,9 @@ with tab2:
             st.text_input("RELATIVE HUMIDITY", value=selected_job.get("relative_humidity", ""), disabled=True)
         with locked3:
             st.text_input("CERTIFICATE ISSUE DATE", value=selected_job.get("certificate_issue_date", ""), disabled=True)
-            st.text_input("STANDARDS 1", value=selected_job.get("standard_1", ""), disabled=True)
-            st.text_input("STANDARDS 2", value=selected_job.get("standard_2", ""), disabled=True)
-            st.text_input("STANDARDS 3", value=selected_job.get("standard_3", ""), disabled=True)
+            st.text_input("STANDARD 1", value=selected_job.get("standard_1", ""), disabled=True)
+            st.text_input("STANDARD 2", value=selected_job.get("standard_2", ""), disabled=True)
+            st.text_input("STANDARD 3", value=selected_job.get("standard_3", ""), disabled=True)
 
         updated_instruments = []
 
@@ -427,7 +446,13 @@ with tab3:
                 st.markdown(f"**Template:** {job.get('template_name','')}")
                 st.markdown(f"**Status:** {job.get('status','')}")
                 st.markdown(f"**Certificate Issue Date:** {job.get('certificate_issue_date','')}")
-                st.markdown(f"**Standards:** {job.get('standard_1','')} | {job.get('standard_2','')} | {job.get('standard_3','')}")
+
+                st.markdown("**Locked standards for technician**")
+                st.write(
+                    f"STANDARD 1: {job.get('standard_1','')} | "
+                    f"STANDARD 2: {job.get('standard_2','')} | "
+                    f"STANDARD 3: {job.get('standard_3','')}"
+                )
 
                 st.markdown("**Locked certificate fields**")
                 st.write(
