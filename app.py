@@ -1,258 +1,314 @@
 import json
-from urllib.parse import urlencode
+from datetime import datetime
+from pathlib import Path
+import zipfile
 
 import streamlit as st
-from cert_generator import fill_certificate, TEMPLATE_FILES, get_template_defaults
+from cert_generator import generate_certificates_for_job
 
-st.set_page_config(page_title="Merit Calibration Certificate Generator", layout="wide")
-st.title("Merit Calibration Certificate Generator")
-st.caption("Regular templates: Brandon, Hugo, and North")
+APP_DIR = Path(__file__).parent
+JOBS_FILE = APP_DIR / "jobs.json"
 
-params = st.query_params
+TECHNICIANS = ["Brandon", "Hugo", "North"]
+TEMPLATE_OPTIONS = ["Brandon Regular", "Hugo Regular", "North Regular"]
 
 
-def qp(name: str, default=""):
-    value = params.get(name, default)
-    if isinstance(value, list):
-        return value[0] if value else default
+def load_jobs():
+    if not JOBS_FILE.exists():
+        return []
+    try:
+        return json.loads(JOBS_FILE.read_text())
+    except Exception:
+        return []
+
+
+def save_jobs(jobs):
+    JOBS_FILE.write_text(json.dumps(jobs, indent=2))
+
+
+def next_job_id(jobs):
+    nums = []
+    for job in jobs:
+        job_id = str(job.get("job_id", ""))
+        if job_id.startswith("JOB-"):
+            try:
+                nums.append(int(job_id.split("-")[1]))
+            except Exception:
+                pass
+    return f"JOB-{(max(nums) + 1) if nums else 1001}"
+
+
+def normalize_tech(value):
+    value = (value or "").strip()
+    for tech in TECHNICIANS:
+        if tech.lower() == value.lower():
+            return tech
     return value
 
 
-def qp_float(name: str, default: float) -> float:
-    try:
-        return float(qp(name, default))
-    except (TypeError, ValueError):
-        return float(default)
+def job_summary(job):
+    return f"{job.get('job_id','')} • {job.get('company','')} • {job.get('status','assigned')} • {len(job.get('instruments', []))} instrument(s)"
 
 
-def qp_int(name: str, default: int) -> int:
-    try:
-        return int(qp(name, default))
-    except (TypeError, ValueError):
-        return int(default)
+def build_job_zip(created_paths):
+    zip_path = APP_DIR / "generated_certs" / "job_certificates.zip"
+    zip_path.parent.mkdir(exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in created_paths:
+            zf.write(path, arcname=path.name)
+    return zip_path
 
 
-template_options = list(TEMPLATE_FILES.keys())
-template_default = qp("template_name", template_options[0])
-template_index = template_options.index(template_default) if template_default in template_options else 0
+st.set_page_config(page_title="Merit Calibration Jobs", layout="wide")
+st.title("Merit Calibration Job Queue")
+st.caption("Office creates jobs. Technicians open one link and work their assigned jobs.")
 
-with st.sidebar:
-    st.subheader("Office Tools")
-    app_base_url = st.text_input(
-        "Deployed app URL",
-        value=qp("app_base_url", ""),
-        help="Paste your live Streamlit app URL here once. Example: https://your-app.streamlit.app",
+params = st.query_params
+tech_from_url = normalize_tech(params.get("tech", ""))
+
+jobs = load_jobs()
+
+tab1, tab2, tab3 = st.tabs(["Office - Create Job", "Technician Dashboard", "Office - Review / Status"])
+
+with tab1:
+    st.subheader("Create a New Job")
+    with st.form("create_job_form"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            assigned_technician = st.selectbox("Assign Technician", TECHNICIANS)
+            template_name = st.selectbox("Template", TEMPLATE_OPTIONS)
+            company = st.text_input("Customer / Company")
+            address = st.text_input("Address")
+        with c2:
+            city_state_zip = st.text_input("City / State / Zip")
+            location = st.text_input("Location / Site")
+            certificate_issue_date = st.text_input("Certificate Issue Date")
+            procedure = st.text_input("Procedure", value="MCP-1")
+        with c3:
+            temperature = st.text_input("Temperature")
+            relative_humidity = st.text_input("Relative Humidity")
+            rated_tolerance = st.text_input("Rated Tolerance", value="±1°F")
+            tolerance_as_found = st.text_input("Tolerance As Found", value="IN")
+
+        st.markdown("**Standards Used**")
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            standard_1 = st.text_input("Standard 1")
+        with s2:
+            standard_2 = st.text_input("Standard 2")
+        with s3:
+            standard_3 = st.text_input("Standard 3")
+
+        instrument_count = st.number_input("How many thermometers?", min_value=1, max_value=20, value=3, step=1)
+
+        instruments = []
+        st.markdown("**Instrument List**")
+        for idx in range(int(instrument_count)):
+            with st.expander(f"Instrument {idx + 1}", expanded=(idx == 0)):
+                a, b, c = st.columns(3)
+                with a:
+                    certificate_number = st.text_input(f"Certificate Number #{idx + 1}", key=f"off_cn_{idx}")
+                    manufacturer = st.text_input(f"Manufacturer #{idx + 1}", value="LOGTAG", key=f"off_mfg_{idx}")
+                with b:
+                    instrument = st.text_input(f"Instrument #{idx + 1}", value="DATA LOGGER THERMOMETER", key=f"off_inst_{idx}")
+                    model_number = st.text_input(f"Model Number #{idx + 1}", key=f"off_model_{idx}")
+                with c:
+                    serial_number = st.text_input(f"Serial Number #{idx + 1}", key=f"off_sn_{idx}")
+                    identification = st.text_input(f"Identification #{idx + 1}", key=f"off_id_{idx}")
+                size_range = st.text_input(f"Size Range #{idx + 1}", key=f"off_rng_{idx}")
+
+                instruments.append({
+                    "certificate_number": certificate_number,
+                    "manufacturer": manufacturer,
+                    "instrument": instrument,
+                    "model_number": model_number,
+                    "serial_number": serial_number,
+                    "identification": identification,
+                    "size_range": size_range,
+                    "results": []
+                })
+
+        submitted = st.form_submit_button("Save Job")
+
+    if submitted:
+        job_id = next_job_id(jobs)
+        new_job = {
+            "job_id": job_id,
+            "created_at": datetime.utcnow().isoformat(),
+            "technician": assigned_technician,
+            "template_name": template_name,
+            "company": company,
+            "address": address,
+            "city_state_zip": city_state_zip,
+            "location": location,
+            "certificate_issue_date": certificate_issue_date,
+            "procedure": procedure,
+            "temperature": temperature,
+            "relative_humidity": relative_humidity,
+            "rated_tolerance": rated_tolerance,
+            "tolerance_as_found": tolerance_as_found,
+            "adjustments_made": "NO",
+            "condition_as_found": "FAIR",
+            "standard_1": standard_1,
+            "standard_2": standard_2,
+            "standard_3": standard_3,
+            "status": "assigned",
+            "instruments": instruments
+        }
+        jobs.append(new_job)
+        save_jobs(jobs)
+        st.success(f"Saved {job_id} for {assigned_technician}")
+
+    st.markdown("**How to send this to a technician**")
+    st.code("https://your-app-name.streamlit.app/?tech=Brandon", language="text")
+    st.info("Replace Brandon with Hugo or North. Each technician can have one permanent link.")
+
+with tab2:
+    st.subheader("Technician Dashboard")
+    selected_tech = st.selectbox(
+        "Technician",
+        TECHNICIANS,
+        index=TECHNICIANS.index(tech_from_url) if tech_from_url in TECHNICIANS else 0,
     )
 
-template_name = st.selectbox("Template", template_options, index=template_index)
-defaults = get_template_defaults(template_name)
+    tech_jobs = [j for j in jobs if normalize_tech(j.get("technician")) == selected_tech and j.get("status") != "reviewed"]
 
-with st.form("certificate_form"):
-    st.subheader("Customer")
-    company = st.text_input("Company", value=qp("company", ""))
-    address = st.text_input("Address", value=qp("address", ""))
-    city_state_zip = st.text_input("City / State / Zip", value=qp("city_state_zip", ""))
+    st.write(f"Open jobs for **{selected_tech}**: {len(tech_jobs)}")
 
-    st.subheader("Certificate")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        technician = st.text_input("Technician", value=qp("technician", defaults.get("technician", "")))
-        certificate_number = st.text_input("Certificate Number", value=qp("certificate_number", ""))
-    with c2:
-        date_calibrated = st.text_input("Date Calibrated", value=qp("date_calibrated", ""))
-        calibration_interval = st.text_input("Calibration Interval", value=qp("calibration_interval", "1 YEAR"))
-    with c3:
-        customer_req_due = st.text_input("Customer Req. Due", value=qp("customer_req_due", ""))
-        certificate_issue_date = st.text_input("Certificate Issue Date", value=qp("certificate_issue_date", ""))
-    with c4:
-        invoice_number = st.text_input("Invoice Number", value=qp("invoice_number", ""))
-        procedure = st.text_input("Procedure", value=qp("procedure", "MCP-1"))
-
-    st.subheader("Instrument")
-    c1, c2 = st.columns(2)
-    with c1:
-        manufacturer = st.text_input("Manufacturer", value=qp("manufacturer", "LOGTAG"))
-        instrument = st.text_input("Instrument", value=qp("instrument", "DATA LOGGER THERMOMETER"))
-        model_number = st.text_input("Model Number", value=qp("model_number", ""))
-        size_range = st.text_input("Size Range", value=qp("size_range", ""))
-    with c2:
-        serial_number = st.text_input("Serial Number", value=qp("serial_number", ""))
-        identification = st.text_input("Identification #", value=qp("identification", ""))
-        location = st.text_input("Location", value=qp("location", ""))
-        condition_as_found = st.text_input("Condition As Found", value=qp("condition_as_found", "FAIR"))
-
-    st.subheader("Standards Used")
-    standard_1 = st.text_input("Standard 1", value=qp("standard_1", defaults.get("standard_1", "")))
-    standard_2 = st.text_input("Standard 2", value=qp("standard_2", defaults.get("standard_2", "")))
-    standard_3 = st.text_input("Standard 3", value=qp("standard_3", defaults.get("standard_3", "")))
-
-    st.subheader("Tolerance / Environment")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        rated_tolerance = st.text_input("Rated Tolerance", value=qp("rated_tolerance", "±1°F"))
-        tolerance_as_found = st.text_input("Tolerance As Found", value=qp("tolerance_as_found", "IN"))
-    with c2:
-        adjustments_made = st.text_input("Adjustments Made", value=qp("adjustments_made", "NO"))
-        temperature = st.text_input("Temperature", value=qp("temperature", ""))
-    with c3:
-        relative_humidity = st.text_input("Relative Humidity", value=qp("relative_humidity", ""))
-
-    st.subheader("Results")
-    st.write("Use as many rows as you need. These regular templates use one UUT reading per row.")
-    results = []
-    for i in range(6):
-        a, b, c, d, e = st.columns(5)
-        with a:
-            point_no = st.number_input(
-                f"Point # {i+1}",
-                min_value=0,
-                step=1,
-                value=qp_int(f"point_no_{i+1}", i + 1),
-                key=f"p{i}",
-            )
-        with b:
-            actual_standard = st.number_input(
-                f"Actual {i+1}",
-                value=qp_float(f"actual_standard_{i+1}", 40.0),
-                step=0.1,
-                key=f"a{i}",
-            )
-        with c:
-            as_found = st.number_input(
-                f"UUT {i+1}",
-                value=qp_float(f"as_found_{i+1}", 40.0),
-                step=0.1,
-                key=f"f{i}",
-            )
-        with d:
-            uncertainty = st.text_input(
-                f"U ± {i+1}",
-                value=qp(f"uncertainty_{i+1}", "0.19"),
-                key=f"u{i}",
-            )
-        with e:
-            use_row = st.checkbox(
-                f"Use row {i+1}",
-                value=(qp(f"use_row_{i+1}", "1") == "1" if f"use_row_{i+1}" in params else i < 3),
-                key=f"use{i}",
-            )
-
-        if use_row:
-            row = {
-                "point_no": point_no,
-                "actual_standard": actual_standard,
-                "as_found": as_found,
-            }
-            if uncertainty.strip():
-                try:
-                    row["uncertainty"] = float(uncertainty)
-                except ValueError:
-                    row["uncertainty"] = uncertainty
-            results.append(row)
-
-    col_link, col_cert = st.columns(2)
-    build_link = col_link.form_submit_button("Generate Technician Link")
-    submitted = col_cert.form_submit_button("Generate Certificate")
-
-data = {
-    "template_name": template_name,
-    "company": company,
-    "address": address,
-    "city_state_zip": city_state_zip,
-    "technician": technician,
-    "date_calibrated": date_calibrated,
-    "calibration_interval": calibration_interval,
-    "customer_req_due": customer_req_due,
-    "invoice_number": invoice_number,
-    "manufacturer": manufacturer,
-    "instrument": instrument,
-    "model_number": model_number,
-    "size_range": size_range,
-    "serial_number": serial_number,
-    "identification": identification,
-    "standard_1": standard_1,
-    "standard_2": standard_2,
-    "standard_3": standard_3,
-    "procedure": procedure,
-    "rated_tolerance": rated_tolerance,
-    "tolerance_as_found": tolerance_as_found,
-    "adjustments_made": adjustments_made,
-    "condition_as_found": condition_as_found,
-    "location": location,
-    "temperature": temperature,
-    "relative_humidity": relative_humidity,
-    "certificate_number": certificate_number,
-    "certificate_issue_date": certificate_issue_date,
-    "results": results,
-}
-
-if build_link:
-    link_params = {
-        "template_name": template_name,
-        "company": company,
-        "address": address,
-        "city_state_zip": city_state_zip,
-        "technician": technician,
-        "date_calibrated": date_calibrated,
-        "calibration_interval": calibration_interval,
-        "customer_req_due": customer_req_due,
-        "invoice_number": invoice_number,
-        "manufacturer": manufacturer,
-        "instrument": instrument,
-        "model_number": model_number,
-        "size_range": size_range,
-        "serial_number": serial_number,
-        "identification": identification,
-        "standard_1": standard_1,
-        "standard_2": standard_2,
-        "standard_3": standard_3,
-        "procedure": procedure,
-        "rated_tolerance": rated_tolerance,
-        "tolerance_as_found": tolerance_as_found,
-        "adjustments_made": adjustments_made,
-        "condition_as_found": condition_as_found,
-        "location": location,
-        "temperature": temperature,
-        "relative_humidity": relative_humidity,
-        "certificate_number": certificate_number,
-        "certificate_issue_date": certificate_issue_date,
-    }
-
-    for idx, row in enumerate(results, start=1):
-        link_params[f"point_no_{idx}"] = row.get("point_no", idx)
-        link_params[f"actual_standard_{idx}"] = row.get("actual_standard", "")
-        link_params[f"as_found_{idx}"] = row.get("as_found", "")
-        link_params[f"use_row_{idx}"] = "1"
-        if "uncertainty" in row:
-            link_params[f"uncertainty_{idx}"] = row["uncertainty"]
-
-    technician_query = urlencode({k: v for k, v in link_params.items() if v not in ("", None)})
-    relative_link = f"?{technician_query}"
-    full_link = f"{app_base_url.rstrip('/')}/{relative_link}" if app_base_url.strip() else ""
-
-    st.success("Technician link created.")
-    if full_link:
-        st.text_area("Full technician link", value=full_link, height=140)
-    st.text_area("Query string", value=relative_link, height=140)
-    st.info("Send the full technician link if you entered the deployed app URL in the sidebar.")
-
-if submitted:
-    if not serial_number:
-        st.error("Serial Number is required.")
+    if not tech_jobs:
+        st.info("No jobs assigned.")
     else:
-        try:
-            output_path = fill_certificate(data)
-            st.success(f"Certificate created: {output_path.name}")
+        selected_job_summary = st.selectbox("Select Job", [job_summary(j) for j in tech_jobs])
+        selected_job = next(j for j in tech_jobs if job_summary(j) == selected_job_summary)
 
-            with open(output_path, "rb") as f:
-                st.download_button(
-                    "Download Excel Certificate",
-                    data=f,
-                    file_name=output_path.name,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
+        st.markdown(f"**Customer:** {selected_job.get('company','')}")
+        st.markdown(f"**Location:** {selected_job.get('location','')}")
+        st.markdown(f"**Template:** {selected_job.get('template_name','')}")
+        st.markdown(f"**Status:** {selected_job.get('status','assigned')}")
 
-            with st.expander("Show the data used"):
-                st.code(json.dumps(data, indent=2), language="json")
-        except Exception as e:
-            st.error(str(e))
+        updated_instruments = []
+
+        for idx, instrument in enumerate(selected_job.get("instruments", [])):
+            with st.expander(f"Instrument {idx + 1} - {instrument.get('serial_number','') or 'No Serial'}", expanded=(idx == 0)):
+                st.write(f"Model: {instrument.get('model_number','')}")
+                st.write(f"Identification: {instrument.get('identification','')}")
+                st.write(f"Certificate #: {instrument.get('certificate_number','')}")
+
+                results = []
+                existing_results = instrument.get("results", [])
+                for r in range(5):
+                    existing = existing_results[r] if r < len(existing_results) else {}
+                    a, b, c, d = st.columns(4)
+                    with a:
+                        point_no = st.number_input(
+                            f"Point #{r + 1} / Instrument {idx + 1}",
+                            min_value=0,
+                            step=1,
+                            value=int(existing.get("point_no", r + 1)),
+                            key=f"tech_p_{idx}_{r}",
+                        )
+                    with b:
+                        actual_standard = st.number_input(
+                            f"Actual {r + 1} / Instrument {idx + 1}",
+                            value=float(existing.get("actual_standard", 40.0)),
+                            step=0.1,
+                            key=f"tech_a_{idx}_{r}",
+                        )
+                    with c:
+                        as_found = st.number_input(
+                            f"UUT {r + 1} / Instrument {idx + 1}",
+                            value=float(existing.get("as_found", 40.0)),
+                            step=0.1,
+                            key=f"tech_f_{idx}_{r}",
+                        )
+                    with d:
+                        use_row = st.checkbox(
+                            f"Use row {r + 1} / Instrument {idx + 1}",
+                            value=bool(existing) if existing else (r < 3),
+                            key=f"tech_use_{idx}_{r}",
+                        )
+
+                    if use_row:
+                        results.append({
+                            "point_no": point_no,
+                            "actual_standard": actual_standard,
+                            "as_found": as_found,
+                        })
+
+                updated = dict(instrument)
+                updated["results"] = results
+                updated_instruments.append(updated)
+
+        c1, c2, c3 = st.columns(3)
+        save_progress = c1.button("Save Progress")
+        generate_certs = c2.button("Generate Certificates")
+        mark_completed = c3.button("Mark Job Completed")
+
+        if save_progress or generate_certs or mark_completed:
+            for job in jobs:
+                if job.get("job_id") == selected_job.get("job_id"):
+                    job["instruments"] = updated_instruments
+                    if save_progress and job.get("status") == "assigned":
+                        job["status"] = "in_progress"
+                    if mark_completed:
+                        job["status"] = "completed"
+            save_jobs(jobs)
+
+        if save_progress:
+            st.success("Progress saved.")
+
+        if mark_completed:
+            st.success("Job marked completed.")
+
+        if generate_certs:
+            job_for_generation = next(j for j in jobs if j.get("job_id") == selected_job.get("job_id"))
+            job_data = {
+                "company": job_for_generation.get("company"),
+                "address": job_for_generation.get("address"),
+                "city_state_zip": job_for_generation.get("city_state_zip"),
+                "technician": job_for_generation.get("technician"),
+                "procedure": job_for_generation.get("procedure"),
+                "rated_tolerance": job_for_generation.get("rated_tolerance"),
+                "tolerance_as_found": job_for_generation.get("tolerance_as_found"),
+                "adjustments_made": job_for_generation.get("adjustments_made"),
+                "condition_as_found": job_for_generation.get("condition_as_found"),
+                "location": job_for_generation.get("location"),
+                "temperature": job_for_generation.get("temperature"),
+                "relative_humidity": job_for_generation.get("relative_humidity"),
+                "certificate_issue_date": job_for_generation.get("certificate_issue_date"),
+                "standard_1": job_for_generation.get("standard_1"),
+                "standard_2": job_for_generation.get("standard_2"),
+                "standard_3": job_for_generation.get("standard_3"),
+            }
+            created = generate_certificates_for_job(
+                job_data=job_data,
+                instruments=job_for_generation.get("instruments", []),
+                template_name=job_for_generation.get("template_name"),
+            )
+            zip_path = build_job_zip(created)
+            st.success(f"Created {len(created)} certificate(s).")
+            with open(zip_path, "rb") as f:
+                st.download_button("Download All Certificates (ZIP)", data=f, file_name=zip_path.name, mime="application/zip")
+
+with tab3:
+    st.subheader("Review / Status")
+    if not jobs:
+        st.info("No jobs yet.")
+    else:
+        status_filter = st.selectbox("Filter by Status", ["all", "assigned", "in_progress", "completed", "reviewed"])
+        filtered = jobs if status_filter == "all" else [j for j in jobs if j.get("status") == status_filter]
+
+        for job in filtered:
+            with st.expander(job_summary(job)):
+                st.write(json.dumps(job, indent=2))
+                col1, col2 = st.columns(2)
+                if col1.button(f"Mark Reviewed - {job.get('job_id')}", key=f"review_{job.get('job_id')}"):
+                    for j in jobs:
+                        if j.get("job_id") == job.get("job_id"):
+                            j["status"] = "reviewed"
+                    save_jobs(jobs)
+                    st.success(f"{job.get('job_id')} marked reviewed.")
+                if col2.button(f"Delete Job - {job.get('job_id')}", key=f"delete_{job.get('job_id')}"):
+                    jobs = [j for j in jobs if j.get("job_id") != job.get("job_id")]
+                    save_jobs(jobs)
+                    st.success(f"{job.get('job_id')} deleted.")
