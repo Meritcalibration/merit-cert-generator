@@ -23,6 +23,52 @@ LOCKED_DEFAULTS = {
     "relative_humidity": "N/A",
 }
 
+INSTRUMENT_CATALOG = [
+    {"manufacturer": "LOGTAG", "model_number": "TRED30-16R", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "TRED30-7R", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "UTRED30-16R", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "UTRED30-WIFI", "size_range": "(-40°F TO 210°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "TREL30-16", "size_range": "(-130°F TO 104°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "VFC400-2", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "VFC400-3", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "VFC400-USB", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "VFC400-WIFI", "size_range": "(-40°F TO 210°F)"},
+    {"manufacturer": "ONSET INTEMP", "model_number": "CX402", "size_range": "(-40°F TO 212°F)"},
+    {"manufacturer": "DELTATRAK", "model_number": "40527", "size_range": "(-58°F TO 104°F)"},
+    {"manufacturer": "BERLINGER", "model_number": "FRIDGE-TAG 2L", "size_range": "(-22°F TO 131°F)"},
+    {"manufacturer": "LASCAR", "model_number": "VFC300", "size_range": "(-40°F TO 257°F)"},
+    {"manufacturer": "LASCAR", "model_number": "VFC5000-TP", "size_range": "(-40°F TO 257°F)"},
+    {"manufacturer": "TRACEABLE", "model_number": "6430", "size_range": "(-58°F TO 158°F)"},
+    {"manufacturer": "LASCAR", "model_number": "VFC-311", "size_range": "(-40°F TO 257°F)"},
+    {"manufacturer": "AEGIS", "model_number": "SENTINEL NEXT", "size_range": "(-4°F TO 140°F)"},
+    {"manufacturer": "ONSET INTEMP", "model_number": "CX402 -VFC215", "size_range": "(-40°F TO 212°F)"},
+    {"manufacturer": "ONSET INTEMP", "model_number": "CX402 -VFC415", "size_range": "(-40°F TO 212°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "VFC400-SP", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "ONSET INTEMP", "model_number": "CX402 -VFC405", "size_range": "(-40°F TO 212°F)"},
+    {"manufacturer": "ONSET INTEMP", "model_number": "CX402 -VFC205", "size_range": "(-40°F TO 212°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "TRED30-16CP", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "DICKSON", "model_number": "WIZARD 2", "size_range": "(-22°F TO 122°F)"},
+    {"manufacturer": "SENSAPHONE", "model_number": "SCD-1200", "size_range": "(-109°F TO 168°F)"},
+    {"manufacturer": "ONSET INTEMP", "model_number": "CX402 -T205", "size_range": "(-40°F TO 212°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "VFC800-WIFI", "size_range": "(-40°F TO 210°F)"},
+    {"manufacturer": "LASCAR", "model_number": "VFC-350", "size_range": "(-40°F TO 257°F)"},
+    {"manufacturer": "ONSET INTEMP", "model_number": "CX402 -VFC230", "size_range": "(-40°F TO 212°F)"},
+    {"manufacturer": "TRACEABLE", "model_number": "6500", "size_range": "(-58°F TO 158°F)"},
+    {"manufacturer": "TRACEABLE", "model_number": "6451", "size_range": "(-58°F TO 158°F)"},
+    {"manufacturer": "TRACEABLE", "model_number": "1198D76", "size_range": "(-58°F TO 158°F)"},
+    {"manufacturer": "ELITECH", "model_number": "GSP-6", "size_range": "(-40°F TO 185°F)"},
+    {"manufacturer": "ACCUCOLD", "model_number": "DL2B", "size_range": "(-49°F TO +248°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "VFC400-1", "size_range": "(-40°F TO 140°F)"},
+    {"manufacturer": "MCKESSON", "model_number": "MCK821RFV2", "size_range": "(-50°F TO 158°F)"},
+    {"manufacturer": "ELITECH", "model_number": "RCW-360 PLUS", "size_range": "(-40°F TO 176°F)"},
+    {"manufacturer": "LOGTAG", "model_number": "UTRED30-16F", "size_range": "(-40°F TO 210°F)"},
+]
+
+CATALOG_LABELS = [
+    f"{item['manufacturer']} | {item['model_number']} | {item['size_range']}"
+    for item in INSTRUMENT_CATALOG
+]
+
 
 def to_caps(value):
     if value is None:
@@ -157,17 +203,44 @@ with tab1:
         st.markdown("**Instrument List**")
         for idx in range(int(instrument_count)):
             with st.expander(f"Instrument {idx + 1}", expanded=(idx == 0)):
+                selected_label = st.selectbox(
+                    f"Catalog Selection #{idx + 1}",
+                    CATALOG_LABELS,
+                    key=f"catalog_{idx}"
+                )
+                selected_item = INSTRUMENT_CATALOG[CATALOG_LABELS.index(selected_label)]
+
                 a, b, c = st.columns(3)
                 with a:
                     certificate_number = to_caps(st.text_input(f"Certificate Number #{idx + 1}", key=f"off_cn_{idx}"))
-                    manufacturer = to_caps(st.text_input(f"Manufacturer #{idx + 1}", value="LOGTAG", key=f"off_mfg_{idx}"))
+                    manufacturer = to_caps(st.selectbox(
+                        f"Manufacturer #{idx + 1}",
+                        options=[selected_item["manufacturer"]],
+                        index=0,
+                        key=f"off_mfg_{idx}"
+                    ))
                 with b:
-                    instrument = to_caps(st.text_input(f"Instrument #{idx + 1}", value="DATA LOGGER THERMOMETER", key=f"off_inst_{idx}"))
-                    model_number = to_caps(st.text_input(f"Model Number #{idx + 1}", key=f"off_model_{idx}"))
+                    instrument = to_caps(st.text_input(
+                        f"Instrument #{idx + 1}",
+                        value="DATA LOGGER THERMOMETER",
+                        key=f"off_inst_{idx}"
+                    ))
+                    model_number = to_caps(st.selectbox(
+                        f"Model #{idx + 1}",
+                        options=[selected_item["model_number"]],
+                        index=0,
+                        key=f"off_model_{idx}"
+                    ))
                 with c:
                     serial_number = to_caps(st.text_input(f"Serial Number #{idx + 1}", key=f"off_sn_{idx}"))
                     identification = to_caps(st.text_input(f"Identification #{idx + 1}", key=f"off_id_{idx}"))
-                size_range = to_caps(st.text_input(f"Size Range #{idx + 1}", key=f"off_rng_{idx}"))
+
+                size_range = to_caps(st.selectbox(
+                    f"Size Range #{idx + 1}",
+                    options=[selected_item["size_range"]],
+                    index=0,
+                    key=f"off_rng_{idx}"
+                ))
 
                 instruments.append({
                     "certificate_number": certificate_number,
@@ -267,7 +340,9 @@ with tab2:
 
         for idx, instrument in enumerate(selected_job.get("instruments", [])):
             with st.expander(f"Instrument {idx + 1} - {instrument.get('serial_number','') or 'No Serial'}", expanded=(idx == 0)):
+                st.write(f"Manufacturer: {instrument.get('manufacturer','')}")
                 st.write(f"Model: {instrument.get('model_number','')}")
+                st.write(f"Size Range: {instrument.get('size_range','')}")
                 st.write(f"Identification: {instrument.get('identification','')}")
                 st.write(f"Certificate #: {instrument.get('certificate_number','')}")
 
@@ -371,8 +446,10 @@ with tab3:
                 st.markdown("**Instruments**")
                 for inst in job.get("instruments", []):
                     st.write(
-                        f"- Cert #{inst.get('certificate_number','')} | Serial: {inst.get('serial_number','')} | "
-                        f"ID: {inst.get('identification','')} | Results rows: {len(inst.get('results', []))}"
+                        f"- Cert #{inst.get('certificate_number','')} | Manufacturer: {inst.get('manufacturer','')} | "
+                        f"Model: {inst.get('model_number','')} | Size Range: {inst.get('size_range','')} | "
+                        f"Serial: {inst.get('serial_number','')} | ID: {inst.get('identification','')} | "
+                        f"Results rows: {len(inst.get('results', []))}"
                     )
 
                 c1, c2, c3 = st.columns(3)
