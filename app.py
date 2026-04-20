@@ -19,8 +19,8 @@ LOCKED_DEFAULTS = {
     "adjustments_made": "NO",
     "condition_as_found": "FAIR",
     "location": "ON-SITE",
-    "temperature": "N/A",
-    "relative_humidity": "N/A",
+    "temperature": "",
+    "relative_humidity": "",
 }
 
 TECHNICIAN_STANDARDS = {
@@ -128,7 +128,9 @@ def normalize_tech(value):
 
 
 def job_summary(job):
-    return f"{job.get('job_id','')} • {job.get('company','')} • {job.get('status','assigned')} • {len(job.get('instruments', []))} instrument(s)"
+    invoice = job.get("invoice_number", "")
+    invoice_part = f"INV {invoice} • " if invoice else ""
+    return f"{job.get('job_id','')} • {invoice_part}{job.get('company','')} • {job.get('status','assigned')} • {len(job.get('instruments', []))} instrument(s)"
 
 
 def build_job_zip(created_paths, job_id):
@@ -155,6 +157,7 @@ def get_job_data(job):
         "temperature": job.get("temperature"),
         "relative_humidity": job.get("relative_humidity"),
         "certificate_issue_date": job.get("certificate_issue_date"),
+        "invoice_number": job.get("invoice_number"),
         "standard_1": job.get("standard_1"),
         "standard_2": job.get("standard_2"),
         "standard_3": job.get("standard_3"),
@@ -169,7 +172,7 @@ def office_locked_value(key, value):
 
 st.set_page_config(page_title="Merit Calibration Jobs", layout="wide")
 st.title("Merit Calibration Job Queue")
-st.caption("Office creates jobs. Technicians enter readings. Office reviews and generates final certificates.")
+st.caption("Office creates jobs. Technicians enter readings plus field temperature and humidity. Office reviews and generates final certificates.")
 
 params = st.query_params
 tech_from_url = normalize_tech(params.get("tech", ""))
@@ -190,11 +193,10 @@ with tab1:
         with c2:
             city_state_zip = to_caps(st.text_input("City / State / Zip"))
             location = office_locked_value("location", st.text_input("Location / Site", value=LOCKED_DEFAULTS["location"]))
+            invoice_number = to_caps(st.text_input("Invoice #"))
             certificate_issue_date = to_caps(st.text_input("Certificate Issue Date", value=datetime.today().strftime("%m/%d/%Y")))
-            procedure = office_locked_value("procedure", st.text_input("Procedure", value=LOCKED_DEFAULTS["procedure"]))
         with c3:
-            temperature = office_locked_value("temperature", st.text_input("Temperature", value=LOCKED_DEFAULTS["temperature"]))
-            relative_humidity = office_locked_value("relative_humidity", st.text_input("Relative Humidity", value=LOCKED_DEFAULTS["relative_humidity"]))
+            procedure = office_locked_value("procedure", st.text_input("Procedure", value=LOCKED_DEFAULTS["procedure"]))
             rated_tolerance = office_locked_value("rated_tolerance", st.text_input("Rated Tolerance", value=LOCKED_DEFAULTS["rated_tolerance"]))
             tolerance_as_found = office_locked_value("tolerance_as_found", st.text_input("Tolerance As Found", value=LOCKED_DEFAULTS["tolerance_as_found"]))
 
@@ -204,17 +206,17 @@ with tab1:
             adjustments_made = office_locked_value("adjustments_made", st.text_input("Adjustments Made", value=LOCKED_DEFAULTS["adjustments_made"]))
             condition_as_found = office_locked_value("condition_as_found", st.text_input("Condition As Found", value=LOCKED_DEFAULTS["condition_as_found"]))
         with lock2:
-            st.text_input("These values will be auto-filled on every certificate", value="LOCKED", disabled=True)
+            st.text_input("Field temperature/humidity will be entered by technician", value="TECH INPUT", disabled=True)
 
         standards = TECHNICIAN_STANDARDS[assigned_technician]
         st.markdown("**Locked standards for assigned technician**")
         s1, s2, s3 = st.columns(3)
         with s1:
-            standard_1 = to_caps(st.text_input("Standard 1", value=standards["standard_1"], disabled=True))
+            st.text_input("Standard 1", value=standards["standard_1"], disabled=True)
         with s2:
-            standard_2 = to_caps(st.text_input("Standard 2", value=standards["standard_2"], disabled=True))
+            st.text_input("Standard 2", value=standards["standard_2"], disabled=True)
         with s3:
-            standard_3 = to_caps(st.text_input("Standard 3", value=standards["standard_3"], disabled=True))
+            st.text_input("Standard 3", value=standards["standard_3"], disabled=True)
 
         instrument_count = st.number_input("How many thermometers?", min_value=1, max_value=20, value=3, step=1)
 
@@ -290,10 +292,11 @@ with tab1:
             "address": address,
             "city_state_zip": city_state_zip,
             "location": location,
+            "invoice_number": invoice_number,
             "certificate_issue_date": certificate_issue_date,
             "procedure": procedure,
-            "temperature": temperature,
-            "relative_humidity": relative_humidity,
+            "temperature": "",
+            "relative_humidity": "",
             "rated_tolerance": rated_tolerance,
             "tolerance_as_found": tolerance_as_found,
             "adjustments_made": adjustments_made,
@@ -333,10 +336,11 @@ with tab2:
         selected_job = next(j for j in tech_jobs if job_summary(j) == selected_job_summary)
 
         st.markdown(f"**Customer:** {selected_job.get('company','')}")
+        st.markdown(f"**Invoice #:** {selected_job.get('invoice_number','')}")
         st.markdown(f"**Location:** {selected_job.get('location','')}")
         st.markdown(f"**Template:** {selected_job.get('template_name','')}")
         st.markdown(f"**Status:** {selected_job.get('status','assigned')}")
-        st.info("The fields below are locked by office and cannot be edited by the technician.")
+        st.info("Temperature and Relative Humidity are technician-entered field values. All other certificate controls remain locked.")
 
         locked1, locked2, locked3 = st.columns(3)
         with locked1:
@@ -347,8 +351,8 @@ with tab2:
         with locked2:
             st.text_input("CONDITION AS FOUND", value=selected_job.get("condition_as_found", ""), disabled=True)
             st.text_input("LOCATION", value=selected_job.get("location", ""), disabled=True)
-            st.text_input("TEMPERATURE", value=selected_job.get("temperature", ""), disabled=True)
-            st.text_input("RELATIVE HUMIDITY", value=selected_job.get("relative_humidity", ""), disabled=True)
+            tech_temperature = to_caps(st.text_input("TEMPERATURE", value=selected_job.get("temperature", ""), key=f"temp_{selected_job.get('job_id')}"))
+            tech_humidity = to_caps(st.text_input("RELATIVE HUMIDITY", value=selected_job.get("relative_humidity", ""), key=f"rh_{selected_job.get('job_id')}"))
         with locked3:
             st.text_input("CERTIFICATE ISSUE DATE", value=selected_job.get("certificate_issue_date", ""), disabled=True)
             st.text_input("STANDARD 1", value=selected_job.get("standard_1", ""), disabled=True)
@@ -418,6 +422,8 @@ with tab2:
             for job in jobs:
                 if job.get("job_id") == selected_job.get("job_id"):
                     job["instruments"] = updated_instruments
+                    job["temperature"] = tech_temperature
+                    job["relative_humidity"] = tech_humidity
                     if save_progress and job.get("status") == "assigned":
                         job["status"] = "in_progress"
                     if mark_completed:
@@ -441,6 +447,7 @@ with tab3:
         for job in filtered:
             with st.expander(job_summary(job), expanded=(job.get("status") == "completed")):
                 st.markdown(f"**Customer:** {job.get('company','')}")
+                st.markdown(f"**Invoice #:** {job.get('invoice_number','')}")
                 st.markdown(f"**Technician:** {job.get('technician','')}")
                 st.markdown(f"**Location:** {job.get('location','')}")
                 st.markdown(f"**Template:** {job.get('template_name','')}")
